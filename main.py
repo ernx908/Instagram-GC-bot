@@ -33,7 +33,6 @@ class InstagramBot(threading.Thread):
 
     def load_config(self):
         try:
-            # Netscape Cookies Read
             if os.path.exists("cookies.txt"):
                 with open("cookies.txt", "r") as f:
                     for line in f:
@@ -43,11 +42,14 @@ class InstagramBot(threading.Thread):
                             self.cookies[parts[5]] = parts[6]
                 self.session_id = self.cookies.get("sessionid", "")
                 print("[+] Netscape Cookies loaded.")
-            else:
-                # Fallback to session.txt
+            elif os.path.exists("session.txt"):
                 with open("session.txt", "r") as f:
                     self.session_id = f.read().strip()
                 print("[+] Session ID loaded from session.txt")
+            else:
+                print("[-] No cookies.txt or session.txt found.")
+                self.running = False
+                return
 
             with open("group.txt", "r") as f:
                 self.group_id = f.read().strip()
@@ -89,10 +91,9 @@ class InstagramBot(threading.Thread):
                 print("[*] Initializing Instagram Client (No Spoofing)...")
                 self.cl = Client()
                 
-                # Set cookies directly if available
                 if self.cookies:
-                    for k, v in self.cookies.items():
-                        self.cl.set_cookie(k, v)
+                    # Set cookies safely
+                    self.cl.set_settings({"cookies": self.cookies})
                 
                 print("[*] Logging in...")
                 self.cl.login_by_sessionid(self.session_id)
@@ -100,7 +101,6 @@ class InstagramBot(threading.Thread):
                 return True
             except Exception as e:
                 print(f"[-] Login Failed: {e}")
-                # Agar login fail hota hai, toh 60 sec wait karke retry karega (IP block se bachne ke liye)
                 time.sleep(60)
         return False
 
