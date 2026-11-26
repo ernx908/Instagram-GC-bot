@@ -3,6 +3,7 @@ import time
 import re
 import threading
 import random
+import sys
 from datetime import datetime
 from fastapi import FastAPI
 import uvicorn
@@ -31,6 +32,9 @@ class InstagramBot(threading.Thread):
         self.sent_good_morning = False
         self.current_date = datetime.now().date()
 
+    def log(self, message):
+        print(message, flush=True)
+
     def load_config(self):
         try:
             if os.path.exists("cookies.txt"):
@@ -41,13 +45,13 @@ class InstagramBot(threading.Thread):
                         if len(parts) >= 7:
                             self.cookies[parts[5]] = parts[6]
                 self.session_id = self.cookies.get("sessionid", "")
-                print("[+] Netscape Cookies loaded.")
+                self.log("[+] Netscape Cookies loaded.")
             elif os.path.exists("session.txt"):
                 with open("session.txt", "r") as f:
                     self.session_id = f.read().strip()
-                print("[+] Session ID loaded from session.txt")
+                self.log("[+] Session ID loaded from session.txt")
             else:
-                print("[-] No cookies.txt or session.txt found.")
+                self.log("[-] No cookies.txt or session.txt found.")
                 self.running = False
                 return
 
@@ -56,8 +60,10 @@ class InstagramBot(threading.Thread):
             with open("admins.txt", "r") as f:
                 self.admins = [line.strip().replace("@", "") for line in f if line.strip()]
             
+            self.log(f"[*] Group: {self.group_id}, Admins: {self.admins}")
+            
         except Exception as e:
-            print(f"[-] Config error: {e}")
+            self.log(f"[-] Config error: {e}")
             self.running = False
 
     def safe_send(self, text, thread_id=None, reply_to_id=None):
@@ -73,7 +79,7 @@ class InstagramBot(threading.Thread):
             else:
                 self.cl.direct_send(text, thread_ids=[target_thread])
         except Exception as e:
-            print(f"[-] Send Failed: {e}")
+            self.log(f"[-] Send Failed: {e}")
 
     def keep_alive(self):
         while self.running:
@@ -81,26 +87,25 @@ class InstagramBot(threading.Thread):
                 time.sleep(480) 
                 if self.running and self.cl:
                     self.cl.get_timeline_feed()
-                    print("[*] Keep-Alive Ping")
+                    self.log("[*] Keep-Alive Ping")
             except Exception:
                 pass
 
     def login_and_retry(self):
         while self.running:
             try:
-                print("[*] Initializing Instagram Client (No Spoofing)...")
+                self.log("[*] Initializing Instagram Client...")
                 self.cl = Client()
                 
                 if self.cookies:
-                    # Set cookies safely
                     self.cl.set_settings({"cookies": self.cookies})
                 
-                print("[*] Logging in...")
+                self.log("[*] Logging in...")
                 self.cl.login_by_sessionid(self.session_id)
-                print(f"[+] Login Successful! @{self.cl.username}")
+                self.log(f"[+] Login Successful! @{self.cl.username}")
                 return True
             except Exception as e:
-                print(f"[-] Login Failed: {e}")
+                self.log(f"[-] Login Failed: {e}")
                 time.sleep(60)
         return False
 
@@ -115,21 +120,22 @@ class InstagramBot(threading.Thread):
         if now.hour == 0 and now.minute == 0 and not self.sent_good_night:
             self.safe_send("GOOD NIGHT @everyone TAKE CARE BAD DREAM'S... Susu karke soo jana 💋💦")
             self.sent_good_night = True
-            print("[*] Sent Good Night")
+            self.log("[*] Sent Good Night")
 
         if now.hour == 6 and now.minute == 0 and not self.sent_good_morning:
             self.safe_send("GOOD MORNING @everyone JOO 6 baje ke pehle nhi utha wo G4Y")
             self.sent_good_morning = True
-            print("[*] Sent Good Morning")
+            self.log("[*] Sent Good Morning")
 
     def run(self):
+        self.log("[*] Starting Bot Thread...")
         self.load_config()
         if not self.running: return
             
         if not self.login_and_retry(): return
 
         threading.Thread(target=self.keep_alive, daemon=True).start()
-        print("[*] Bot Engine Started.")
+        self.log("[*] Bot Engine Started.")
 
         while self.running:
             try:
@@ -185,12 +191,13 @@ class InstagramBot(threading.Thread):
                 time.sleep(random.uniform(3.0, 5.0)) 
 
             except LoginRequired:
-                print("[!] Session expired. Relogging...")
+                self.log("[!] Session expired. Relogging...")
                 if not self.login_and_retry(): break
             except RateLimitError:
+                self.log("[!] Rate limited. Sleeping 120s.")
                 time.sleep(120)
             except Exception as e:
-                print(f"[!] Error: {e}")
+                self.log(f"[!] Error: {e}")
                 time.sleep(10)
 
 if __name__ == "__main__":
