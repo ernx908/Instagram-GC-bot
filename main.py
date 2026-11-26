@@ -25,6 +25,7 @@ class InstagramBot(threading.Thread):
         self.group_id = ""
         self.admins = []
         self.session_id = ""
+        self.cookies = {}
         self.processed_msgs = set()
         self.sent_good_night = False
         self.sent_good_morning = False
@@ -32,13 +33,27 @@ class InstagramBot(threading.Thread):
 
     def load_config(self):
         try:
-            with open("session.txt", "r") as f:
-                self.session_id = f.read().strip()
+            # Netscape Cookies Read
+            if os.path.exists("cookies.txt"):
+                with open("cookies.txt", "r") as f:
+                    for line in f:
+                        if line.startswith("#") or not line.strip(): continue
+                        parts = line.strip().split('\t')
+                        if len(parts) >= 7:
+                            self.cookies[parts[5]] = parts[6]
+                self.session_id = self.cookies.get("sessionid", "")
+                print("[+] Netscape Cookies loaded.")
+            else:
+                # Fallback to session.txt
+                with open("session.txt", "r") as f:
+                    self.session_id = f.read().strip()
+                print("[+] Session ID loaded from session.txt")
+
             with open("group.txt", "r") as f:
                 self.group_id = f.read().strip()
             with open("admins.txt", "r") as f:
                 self.admins = [line.strip().replace("@", "") for line in f if line.strip()]
-            print("[+] Config loaded.")
+            
         except Exception as e:
             print(f"[-] Config error: {e}")
             self.running = False
@@ -71,22 +86,13 @@ class InstagramBot(threading.Thread):
     def login_and_retry(self):
         while self.running:
             try:
-                print("[*] Initializing Instagram Client...")
+                print("[*] Initializing Instagram Client (No Spoofing)...")
                 self.cl = Client()
                 
-                self.cl.set_device({
-                    "app_version": "269.0.0.18.75",
-                    "android_version": 26,
-                    "android_release": "8.0.0",
-                    "dpi": "480dpi",
-                    "resolution": "1080x1920",
-                    "manufacturer": "OnePlus",
-                    "device": "devitron",
-                    "model": "6T Dev",
-                    "cpu": "qcom",
-                    "version_code": "314665256"
-                })
-                self.cl.set_user_agent("Instagram 269.0.0.18.75 Android (26/8.0.0; 480dpi; 1080x1920; OnePlus; 6T Dev; devitron; qcom; en_US; 314665256)")
+                # Set cookies directly if available
+                if self.cookies:
+                    for k, v in self.cookies.items():
+                        self.cl.set_cookie(k, v)
                 
                 print("[*] Logging in...")
                 self.cl.login_by_sessionid(self.session_id)
@@ -94,11 +100,8 @@ class InstagramBot(threading.Thread):
                 return True
             except Exception as e:
                 print(f"[-] Login Failed: {e}")
-                if "login_required" in str(e).lower() or "invalid" in str(e).lower():
-                    self.running = False
-                    return False
-                else:
-                    time.sleep(60)
+                # Agar login fail hota hai, toh 60 sec wait karke retry karega (IP block se bachne ke liye)
+                time.sleep(60)
         return False
 
     def check_time_events(self):
@@ -109,13 +112,11 @@ class InstagramBot(threading.Thread):
             self.sent_good_morning = False
             self.current_date = now.date()
 
-        # Good Night at 12:00 AM
         if now.hour == 0 and now.minute == 0 and not self.sent_good_night:
             self.safe_send("GOOD NIGHT @everyone TAKE CARE BAD DREAM'S... Susu karke soo jana 💋💦")
             self.sent_good_night = True
             print("[*] Sent Good Night")
 
-        # Good Morning at 6:00 AM
         if now.hour == 6 and now.minute == 0 and not self.sent_good_morning:
             self.safe_send("GOOD MORNING @everyone JOO 6 baje ke pehle nhi utha wo G4Y")
             self.sent_good_morning = True
@@ -133,17 +134,14 @@ class InstagramBot(threading.Thread):
         while self.running:
             try:
                 self.check_time_events()
-                messages = self.cl.direct_messages(amount=10) # Fetch all recent threads
+                messages = self.cl.direct_messages(amount=10)
                 
                 for msg in reversed(messages):
-                    if msg.id in self.processed_msgs:
-                        continue
+                    if msg.id in self.processed_msgs: continue
                     self.processed_msgs.add(msg.id)
-                    if len(self.processed_msgs) > 100:
-                        self.processed_msgs.pop()
+                    if len(self.processed_msgs) > 100: self.processed_msgs.pop()
 
-                    if msg.user_id == self.cl.user_id:
-                        continue 
+                    if msg.user_id == self.cl.user_id: continue 
 
                     try:
                         username = self.cl.user_info(msg.user_id).username
@@ -154,38 +152,30 @@ class InstagramBot(threading.Thread):
                     user_id = str(msg.user_id)
                     thread_id = msg.thread_id
                     
-                    # ==========================================
-                    # DM COMMAND SYSTEM (Admin Only)
-                    # ==========================================
+                    # DM SYSTEM
                     if str(thread_id) != str(self.group_id):
                         if username in self.admins and text.startswith("/message_send "):
                             send_text = text.replace("/message_send ", "")
                             self.safe_send(send_text, thread_id=self.group_id)
                             self.safe_send("Message sent to GC!", thread_id=thread_id, reply_to_id=msg.id)
-                        continue # Ignore other DMs
+                        continue 
 
-                    # ==========================================
                     # GC COMMANDS
-                    # ==========================================
                     if f"@{self.cl.username}" in text:
                         text = text.replace(f"@{self.cl.username}", "").strip()
 
-                    # /start Command
                     if text == "/start" and username in self.admins:
                         self.safe_send("BOT IS ACTIVE 🟢", reply_to_id=msg.id)
                         continue
 
-                    # Ignore Word
                     if re.search(r'i\s*g\s*n\s*o\s*r\s*e', text, re.IGNORECASE):
                         self.safe_send("AWW BACCHA ISSOKIEE MEIN HU NA APKE LIYE 🥹💋", reply_to_id=msg.id)
                         continue
 
-                    # IG Link Promotion
                     if re.search(r'https:\/\/ig\.me\/', text):
                         self.safe_send("AWWW TERE B44P KI BIWI KI PIC DE RHA KYA ISS GC PE", reply_to_id=msg.id)
                         continue
 
-                    # 6-HOUR WELCOME SYSTEM
                     last_welcome = get_user_last_welcome(user_id)
                     now = datetime.now()
                     if not last_welcome or (now - last_welcome).total_seconds() > 6 * 3600:
